@@ -11,63 +11,58 @@ import time
 import concurrent.futures
 import multiprocessing
 
-def main():
-    # mj_model = mujoco.MjModel.from_xml_path("mujoco_models/Acrobot/acrobot.xml")
-    
-    mj_data = mujoco.MjData(mj_model)
+import matplotlib.pyplot as plt
 
-    mjx_model = mjx.put_model(mj_model)
-    mjx_data = mjx.put_data(mj_model, mj_data)
+import math
 
-    rng = jax.random.PRNGKey(0)
-    rng = jax.random.split(rng, 4096)
-    batch = jax.vmap(lambda rng: mjx_data.replace(qpos=jax.random.uniform(rng, (1,))))(rng)
-
-    # Creates a JIT (Just in time) compilation of the function using JAX.
-    jit_step = jax.jit(jax.vmap(mjx.step, in_axes=(None, 0)))
-    # batch = jit_step(mjx_model, batch)
-
-    print(batch.qpos)
-    print(batch.qpos.size)
-
-def simulate_step(model, mj_data, num_steps):
+def simulate_step(model, data, num_steps):
+    #mj_data = mujoco.MjData(model)  # Create mjData inside the function for each process
     for _ in range(num_steps):
-        mujoco.mj_step(model, mj_data)
+        mujoco.mj_step(model, data)
+    return data.qpos 
 
-    return mj_data.qpos
+def simulate_GPU(mj_model, mj_data, total_steps, batch_size):
 
-def time_model(mj_model, total_steps):
-
-    time_cpu_serial = 0
-    time_cpu_parallel = 0
-    time_gpu = 0
-
-    # ------------------------------- General setup -----------------------------------------
-    num_cores = multiprocessing.cpu_count()
-
-    mj_data = mujoco.MjData(mj_model)
+    print(f"Start of GPU parallel test for batch size {batch_size}")
 
     mjx_model = mjx.put_model(mj_model)
     mjx_data = mjx.put_data(mj_model, mj_data)
 
-    mj_data_instances = [mujoco.MjData(mj_model) for _ in range(num_cores)]
-
-    batch_size = 4096
     rng = jax.random.PRNGKey(0)
     rng = jax.random.split(rng, batch_size)
     batch = jax.vmap(lambda rng: mjx_data.replace(qpos=jax.random.uniform(rng, (1,))))(rng)
 
     jit_step = jax.jit(jax.vmap(mjx.step, in_axes=(None, 0)))
 
+    num_batch_steps = math.ceil(total_steps / batch_size)
+    print(f'num batch steps: {num_batch_steps}')
+
+    time_start = time.time()
+    for i in range(num_batch_steps):
+        batch = jit_step(mjx_model, batch)
+    time_gpu = time.time() - time_start
+
+    return time_gpu
+
+def time_model(mj_model, total_steps, gpu_batch_sizes):
+
+    time_cpu_serial = 0
+    time_cpu_parallel = 0
+    time_gpu = []
+
+    # ------------------------------- General setup -----------------------------------------
+    num_cores = multiprocessing.cpu_count()
+
+    mj_data = mujoco.MjData(mj_model)
+
+    mj_data_instances = [mujoco.MjData(mj_model) for _ in range(num_cores)]
+
     print(f'Num total steps {total_steps}')
     print(f'num cores: {num_cores}')
 
-    num_cpu_steps = int(total_steps / num_cores)
+    num_cpu_steps = math.ceil(total_steps / num_cores)
     print(f'Num CPU Steps: {num_cpu_steps}')
 
-    num_batch_steps = int(total_steps / batch_size)
-    print(f'num batch steps: {num_batch_steps}')
-    
     # -------------------------------- CPU serial test ---------------------------------------
     print("Start of CPU serial test")
     time_start = time.time()
@@ -77,24 +72,41 @@ def time_model(mj_model, total_steps):
 
     # ------------------------------- CPU parallel test --------------------------------------
     print("Start of CPU parallel test")
+    multiprocessing.set_start_method('spawn', force=True)
 
-    def parallel_cpu_simulation(mj_data):
-        return simulate_step(mj_model, mj_data, num_cpu_steps)
-
-    # Execute our CPU parallelised mj_steps
     time_start = time.time()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        results = list(executor.map(parallel_cpu_simulation, mj_data_instances))
+    with multiprocessing.Pool(processes=num_cores) as pool:
+        results = pool.starmap(simulate_step, [(mj_model, mj_data_instances[_], num_cpu_steps) for _ in range(num_cores)])
     time_cpu_parallel = time.time() - time_start
 
     # ------------------------------- GPU parallel test --------------------------------------
 
-    time_start = time.time()
-    for i in range(num_batch_steps):
-        batch = jit_step(mjx_model, batch)
-    time_gpu = time.time() - time_start
+    # For GPU we loop through differen batch sizes and test
+    for batch_size in gpu_batch_sizes:
+        time_gpu.append(simulate_GPU(mj_model, mj_data, total_steps, batch_size))
 
     return time_cpu_serial, time_cpu_parallel, time_gpu
+
+def create_plot(inputs, times_cpu_serial, times_cpu_parallel, times_gpu, batch_sizes):
+    print("begin plotting script")
+    plt.figure(figsize=(10, 6))
+
+    print(times_gpu)
+
+    plt.plot(inputs, times_cpu_serial, label='Time CPU (s)', marker = 'o')
+    plt.plot(inputs, times_cpu_parallel, label='Time CPU Parallel (s)', marker='o')
+
+    for i, timing_list in enumerate(times_gpu):
+        plt.plot(inputs, timing_list, label=f'Time GPU - Batch size: {batch_sizes[i]} (s)', marker='x')
+
+    plt.xscale('log')  # Logarithmic scale for x-axis
+    plt.xlabel('Number mj_steps')
+    plt.ylabel('Time (s)')
+    plt.title('Timing results')
+    plt.legend()
+    plt.grid(True)
+    # plt.show()
+    plt.savefig('timing_results.png')
 
 if __name__ == "__main__":
 
@@ -111,8 +123,28 @@ if __name__ == "__main__":
     </mujoco>
     """
 
+    num_cores = multiprocessing.cpu_count()
+
+    inputs = np.logspace(5, 9, num = 8)
+    inputs = [int(x) for x in inputs]
+
     mj_model = mujoco.MjModel.from_xml_string(xml)
 
-    time_cpu_serial, time_cpu_parallel, time_gpu = time_model(mj_model, 4096*1000)
+    batch_sizes = [1024, 2048, 4096]
 
-    print(f'time cpu serial: {time_cpu_serial}, time cpu parallel {time_cpu_parallel} and time_gpu: {time_gpu}')
+    time_cpu_serial = []
+    time_cpu_parallel = []
+    time_gpu_parallel = [[] for _ in range(len(batch_sizes))] 
+
+    for size in inputs:
+        t_cpu_s, t_cpu_p, t_gpu = time_model(mj_model, size, batch_sizes)
+        time_cpu_serial.append(t_cpu_s)
+        time_cpu_parallel.append(t_cpu_p)
+
+        for i, t in enumerate(t_gpu):
+            time_gpu_parallel[i].append(t)
+
+    create_plot(inputs, time_cpu_serial, time_cpu_parallel, time_gpu_parallel, batch_sizes)
+
+
+    # print(f'time cpu serial: {time_cpu_serial}, time cpu parallel {time_cpu_parallel} and time_gpu: {time_gpu}')
