@@ -14,19 +14,8 @@ xml = """
 </mujoco>
 """
 
-# %env MUJOCO_GL=egl
-
-# # Make model, data, and renderer
-# mj_model = mujoco.MjModel.from_xml_string(xml)
-# mj_data = mujoco.MjData(mj_model)
-# renderer = mujoco.Renderer(mj_model)
-
 model = mujoco.MjModel.from_xml_string(xml)
 data = mujoco.MjData(model)
-
-# Make renderer, render and show the pixels
-# with mujoco.Renderer(model) as renderer:
-#   media.show_image(renderer.render())
 
 viewer = mujoco_viewer.MujocoViewer(model, data)
 
@@ -38,16 +27,3 @@ for _ in range(1000):
         break
 
 viewer.close()
-
-
-# with mujoco.viewer.launch_passive(model, data) as viewer:
-#     while viewer.is_running():
-#         # viewer.sync()
-#         viewer.render()
-
-
-# with mujoco.viewer(model) as renderer:
-#     mujoco.mj_forward(model, data)
-#     renderer.update_scene(data)
-
-#     media.show_image(renderer.render())
