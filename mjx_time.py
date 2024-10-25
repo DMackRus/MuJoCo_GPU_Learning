@@ -64,11 +64,11 @@ def time_model(mj_model, total_steps, gpu_batch_sizes):
     print(f'Num CPU Steps: {num_cpu_steps}')
 
     # -------------------------------- CPU serial test ---------------------------------------
-    print("Start of CPU serial test")
-    time_start = time.time()
-    for i in range(total_steps):
-        mujoco.mj_step(mj_model, mj_data)
-    time_cpu_serial = time.time() - time_start
+    # print("Start of CPU serial test")
+    # time_start = time.time()
+    # for i in range(total_steps):
+    #     mujoco.mj_step(mj_model, mj_data)
+    # time_cpu_serial = time.time() - time_start
 
     # ------------------------------- CPU parallel test --------------------------------------
     print("Start of CPU parallel test")
@@ -85,15 +85,15 @@ def time_model(mj_model, total_steps, gpu_batch_sizes):
     for batch_size in gpu_batch_sizes:
         time_gpu.append(simulate_GPU(mj_model, mj_data, total_steps, batch_size))
 
-    return time_cpu_serial, time_cpu_parallel, time_gpu
+    return time_cpu_parallel, time_gpu
 
-def create_plot(inputs, times_cpu_serial, times_cpu_parallel, times_gpu, batch_sizes):
+def create_plot(inputs, times_cpu_parallel, times_gpu, batch_sizes):
     print("begin plotting script")
     plt.figure(figsize=(10, 6))
 
     print(times_gpu)
 
-    plt.plot(inputs, times_cpu_serial, label='Time CPU (s)', marker = 'o')
+    # plt.plot(inputs, times_cpu_serial, label='Time CPU (s)', marker = 'o')
     plt.plot(inputs, times_cpu_parallel, label='Time CPU Parallel (s)', marker='o')
 
     for i, timing_list in enumerate(times_gpu):
@@ -130,21 +130,21 @@ if __name__ == "__main__":
 
     mj_model = mujoco.MjModel.from_xml_string(xml)
 
-    batch_sizes = [1024, 2048, 4096]
+    batch_sizes = [2048, 4096, 8192]
 
     time_cpu_serial = []
     time_cpu_parallel = []
     time_gpu_parallel = [[] for _ in range(len(batch_sizes))] 
 
     for size in inputs:
-        t_cpu_s, t_cpu_p, t_gpu = time_model(mj_model, size, batch_sizes)
-        time_cpu_serial.append(t_cpu_s)
+        t_cpu_p, t_gpu = time_model(mj_model, size, batch_sizes)
+        # time_cpu_serial.append(t_cpu_s)
         time_cpu_parallel.append(t_cpu_p)
 
         for i, t in enumerate(t_gpu):
             time_gpu_parallel[i].append(t)
 
-    create_plot(inputs, time_cpu_serial, time_cpu_parallel, time_gpu_parallel, batch_sizes)
+    create_plot(inputs, time_cpu_parallel, time_gpu_parallel, batch_sizes)
 
 
     # print(f'time cpu serial: {time_cpu_serial}, time cpu parallel {time_cpu_parallel} and time_gpu: {time_gpu}')
