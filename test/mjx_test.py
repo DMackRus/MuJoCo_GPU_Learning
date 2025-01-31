@@ -6,10 +6,21 @@ import jax
 from jax import numpy as jp
 import numpy as np
 
-# %env MUJOCO_GL=egl
+xml = """
+<mujoco>
+  <worldbody>
+    <light name="top" pos="0 0 1"/>
+    <body name="box_and_sphere" euler="0 0 -30">
+      <joint name="swing" type="hinge" axis="1 -1 0" pos="-.2 -.2 -.2"/>
+      <geom name="red_box" type="box" size=".2 .2 .2" rgba="1 0 0 1"/>
+      <geom name="green_sphere" pos=".2 .2 .2" size=".1" rgba="0 1 0 1"/>
+    </body>
+  </worldbody>
+</mujoco>
+"""
 
 # Make model, data, and renderer
-mj_model = mujoco.MjModel.from_xml_path("mujoco_models/Acrobot/acrobot.xml")
+mj_model = mujoco.MjModel.from_xml_string(xml)
 mj_data = mujoco.MjData(mj_model)
 # renderer = mujoco.Renderer(mj_model)
 
